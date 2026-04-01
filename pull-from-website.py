@@ -57,6 +57,29 @@ def save_raw_html(filename, content):
     except IOError as e:
         logging.error(f"Error saving raw HTML to file: {e}")
 
+def align_marker_line(old_file, new_file, marker="Table of Contents"):
+    def find_line(path):
+        with open(path, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if marker in line:
+                    return i
+        return None
+
+    old_idx = find_line(old_file)
+    new_idx = find_line(new_file)
+
+    if old_idx is None or new_idx is None:
+        logging.warning("Marker not found in one of the files; skipping alignment.")
+        return
+
+    if old_idx < new_idx:
+        diff = new_idx - old_idx
+        with open(old_file, encoding="utf-8") as f:
+            content = f.read()
+        with open(old_file, "w", encoding="utf-8") as f:
+            f.write("\n" * diff + content)
+        logging.info(f"Prepended {diff} blank lines to {old_file} for alignment.")
+
 # Main function
 def main(url, output_file):
     if os.path.exists(output_file):
@@ -73,6 +96,11 @@ def main(url, output_file):
     soup = BeautifulSoup(html_content, 'html.parser')
     text = clean_html(soup)
     save_to_file(output_file, text)
+
+    # Align old backup with new file
+    old_file = f"{os.path.splitext(output_file)[0]}_old{os.path.splitext(output_file)[1]}"
+    if os.path.exists(old_file):
+        align_marker_line(old_file, output_file)
 
 if __name__ == "__main__":
     URL = 'https://www.wiebefamily.org/GHT.htm'

@@ -155,7 +155,7 @@ def export_missing_lxx(db_lxx="lxx.db", base_file="Website/base.json", out_file=
             translit = greek
 
         # If ident missing/empty, use translit instead
-        first_value = ident if ident else translit
+        first_value = ident if ident not in (None, "") else translit
 
         data[book][chapter][verse][word] = [
             first_value,
