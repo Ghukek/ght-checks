@@ -57,28 +57,68 @@ def save_raw_html(filename, content):
     except IOError as e:
         logging.error(f"Error saving raw HTML to file: {e}")
 
-def align_marker_line(old_file, new_file, marker="Table of Contents"):
-    def find_line(path):
-        with open(path, encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if marker in line:
-                    return i
+import os
+import logging
+from collections import defaultdict
+
+def align_files(old_file, new_file, output_file=None):
+    with open(old_file, encoding="utf-8") as f:
+        old_lines = [line.rstrip("\n") for line in f]
+
+    with open(new_file, encoding="utf-8") as f:
+        new_lines = [line.rstrip("\n") for line in f]
+
+    # Build index map for occurrences in new file
+    positions = defaultdict(list)
+    for i, line in enumerate(new_lines):
+        positions[line].append(i)
+
+    def next_pos(line, start_idx):
+        """Find first occurrence of line in new_lines after start_idx"""
+        for p in positions.get(line, []):
+            if p >= start_idx:
+                return p
         return None
 
-    old_idx = find_line(old_file)
-    new_idx = find_line(new_file)
+    aligned_old = []
+    new_idx = 0
 
-    if old_idx is None or new_idx is None:
-        logging.warning("Marker not found in one of the files; skipping alignment.")
-        return
+    for old_line in old_lines:
+        if new_idx >= len(new_lines):
+            aligned_old.append(old_line)
+            continue
 
-    if old_idx < new_idx:
-        diff = new_idx - old_idx
-        with open(old_file, encoding="utf-8") as f:
-            content = f.read()
-        with open(old_file, "w", encoding="utf-8") as f:
-            f.write("\n" * diff + content)
-        logging.info(f"Prepended {diff} blank lines to {old_file} for alignment.")
+        target = next_pos(old_line, new_idx)
+
+        # Case 1: line never appears again in new → consume both
+        if target is None:
+            aligned_old.append(old_line)
+            new_idx += 1  # force advancement in new stream
+            continue
+
+        # Case 2: new has extra lines before match → insert blanks
+        while new_idx < target:
+            aligned_old.append("")  # blank line inserted into old
+            new_idx += 1
+
+        # Case 3: lines match → consume both
+        aligned_old.append(old_line)
+        new_idx += 1
+
+    # Optional: if new has trailing lines, reflect them as blanks in old
+    while new_idx < len(new_lines):
+        aligned_old.append("")
+        new_idx += 1
+
+    result = "\n".join(aligned_old) + "\n"
+
+    if output_file is None:
+        output_file = old_file
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(result)
+
+    logging.info(f"Aligned file written to {output_file}")
 
 # Main function
 def main(url, output_file):
@@ -100,7 +140,7 @@ def main(url, output_file):
     # Align old backup with new file
     old_file = f"{os.path.splitext(output_file)[0]}_old{os.path.splitext(output_file)[1]}"
     if os.path.exists(old_file):
-        align_marker_line(old_file, output_file)
+        align_files(old_file, output_file)
 
 if __name__ == "__main__":
     URL = 'https://www.wiebefamily.org/GHT.htm'
