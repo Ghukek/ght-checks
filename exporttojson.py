@@ -221,6 +221,9 @@ def exportlookups():
         if greek == "none":
             greek = ""
 
+        if roots_translit == "none":
+            roots_translit = ""
+
         data[ident] = [
             transliterate(greek),
             pcode,
