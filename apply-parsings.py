@@ -6,7 +6,7 @@ def contains_pronouns(word):
     return any(part in helper_words for part in parts)
 
 def contains_subjunctive(word):
-    helper_words = {"should", "may", "would"}
+    helper_words = {"should", "may", "would", "can"}
     parts = word.lower().split('-')
     return any(part in helper_words for part in parts)
 
