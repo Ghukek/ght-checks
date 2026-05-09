@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Go to: https://dash.cloudflare.com/profile/api-tokens
+# Click “Create Token”
+# Use “Custom token” (not the global key)
+# Add:
+# Zone → Cache Purge → Purge
+# (Optionally) Zone → Zone → Read (helps avoid weird permission issues)
+# Zone Resources
+# Set to: Include → Specific zone → ghukek.com
+
 set -a  # automatically export variables
 source .env
 set +a
