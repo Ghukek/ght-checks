@@ -74,6 +74,7 @@ FULL_PATHS=(
   "/nicene.html"
   "/public_domain_icon_200x200.png"
   "/uniqueght.html"
+  "/roots.html"
   # add all pages here
 )
 

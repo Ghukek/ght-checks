@@ -123,7 +123,7 @@ def export_missing_lxx(db_lxx="lxx.db", base_file="Website/base.json", out_file=
         while len(lst) <= idx:
             lst.append([])
 
-    for english, greek, uid, raw, guid, ident in lxx_rows:
+    for i, (english, greek, uid, raw, guid, ident) in enumerate(lxx_rows):
         if uid is None:
             continue
 
@@ -140,10 +140,25 @@ def export_missing_lxx(db_lxx="lxx.db", base_file="Website/base.json", out_file=
             continue
 
         # Compute guid_decimal like your original function
-        if guid is not None:
-            guid_decimal = round(guid % 1 * 100) - 1
+        # Look ahead to the next row if current guid is None
+        if guid is None:
+            # Try to find the next valid guid
+            try:
+                _, _, _, _, next_guid, _ = lxx_rows[i + 1]
+                _, _, _, _, prev_guid, _ = lxx_rows[i - 1]
+                if next_guid is not None and not raw.endswith('}'):
+                    guid_decimal = round(next_guid % 1 * 100) - 1.1
+                    guid_decimal = round(guid_decimal, 1)
+                elif prev_guid is not None:
+                    guid_decimal = round(prev_guid % 1 * 100) - .9
+                    guid_decimal = round(guid_decimal, 1)
+                else:
+                    input(lxx_rows[i+1])
+            except IndexError:
+                input(lxx_rows[i+1])
+                guid_decimal = -1  # fallback if this is the last row
         else:
-            guid_decimal = -1
+            guid_decimal = round(guid % 1 * 100) - 1
 
         if greek == "none":
             greek = ""
