@@ -152,6 +152,9 @@ def export_missing_lxx(db_lxx="lxx.db", base_file="Website/base.json", out_file=
                 elif prev_guid is not None:
                     guid_decimal = round(prev_guid % 1 * 100) - .9
                     guid_decimal = round(guid_decimal, 1)
+                elif word == 0:
+                    print(lxx_rows[i+1])
+                    guid_decimal = word
                 else:
                     input(lxx_rows[i+1])
             except IndexError:
@@ -287,10 +290,12 @@ def exportlookupsex():
             all_roots = expand_root(cursor, roots)
             roots = ",".join(all_roots)
 
+        if roots and roots == "none":
+            roots = None
         if roots and roots.endswith(",none"):
             roots = roots[:-5]
-        #if roots and roots.endswith(",ω"):
-        #    roots = roots[:-2]
+        if roots and roots.endswith(",ω"):
+            roots = roots[:-2]
 
         roots_translit = transliterate(roots) if roots else ""
 

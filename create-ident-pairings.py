@@ -1,4 +1,5 @@
 import sqlite3
+from apply_parsings import grammatical_match
 
 def setwordmap():
 
@@ -66,17 +67,35 @@ def assign_missing_english(entries_db_path, parsings_db_path):
     par_conn = sqlite3.connect(parsings_db_path)
     par_cur = par_conn.cursor()
 
-    # Find entries with non-empty English and no ident (i.e., not found in word_map)
+    # Find distinct missing (Greek, English) pairs.
     ent_cur.execute("""
         SELECT DISTINCT greek, english
         FROM entries
-        WHERE ident=="" AND english IS NOT NULL AND TRIM(english) != ''
+        WHERE (ident IS NULL OR ident = '')
+          AND english IS NOT NULL
+          AND TRIM(english) != ''
     """)
     missing_pairs = ent_cur.fetchall()
+
     print(f"Found {len(missing_pairs)} entries with missing ident but valid English.")
 
+    # Keep track of words whose English failed grammatical validation.
+    failed_words = []
+
     for greek, english in missing_pairs:
-        # Find matching parsings with that Greek word
+
+        # Get the locations (uid) of all entries represented by this pair.
+        ent_cur.execute("""
+            SELECT uid
+            FROM entries
+            WHERE greek = ?
+              AND english = ?
+              AND (ident IS NULL OR ident = '')
+        """, (greek, english))
+
+        uids = [row[0] for row in ent_cur.fetchall()]
+
+        # Find matching parsing entries for this Greek word.
         par_cur.execute("""
             SELECT ident, mac, strongs, english
             FROM parsings
@@ -90,63 +109,123 @@ def assign_missing_english(entries_db_path, parsings_db_path):
 
         print(f"\n--- Assigning English '{english}' to Greek '{greek}' ---")
 
-        chosen_ident = None
+        # ------------------------------------------------------------
+        # First: validate every possible parsing against the English.
+        # ------------------------------------------------------------
 
-        if len(candidates) == 1:
-            ident, mac, strongs, existing_eng = candidates[0]
-            if existing_eng is None or existing_eng.strip() == "":
-                print(f"Only one parsing entry (mac={mac}), assigning directly.")
-                par_cur.execute("""
-                    UPDATE parsings
-                    SET english = ?
-                    WHERE ident = ?
-                """, (english, ident))
-                chosen_ident = ident
-            else:
-                print(f"Existing English already present: '{existing_eng}', creating new parsing.")
+        valid_candidates = []
+
+        for candidate in candidates:
+            ident, mac, strongs, existing_eng = candidate
+
+            print(
+                f"Checking ident={ident}, mac={mac}, "
+                f"strongs={strongs}, existing English={existing_eng}"
+            )
+
+            if mac is None:
+                valid_candidates.append(candidate)
+            elif grammatical_match(mac, english):
+                valid_candidates.append(candidate)
+
+        # No parsing is grammatically compatible with the English.
+        if not valid_candidates:
+            print(
+                f"FAILED grammatical validation: "
+                f"Greek='{greek}', English='{english}'"
+            )
+
+            for uid in uids:
+                failed_words.append((uid, greek, english))
+
+            continue
+
+        # From this point onward, ONLY grammatically valid candidates
+        # may be assigned.
+
+        chosen_candidate = None
+
+        if len(valid_candidates) == 1:
+            chosen_candidate = valid_candidates[0]
+
         else:
-            print("Multiple parsing entries found:")
-            for idx, (ident, mac, strongs, eng) in enumerate(candidates):
-                print(f"  [{idx}] ident={ident}, mac={mac}, strongs={strongs}, english={eng}")
+            print("\nMultiple valid grammatical matches:")
+            for idx, (ident, mac, strongs, existing_eng) in enumerate(
+                valid_candidates
+            ):
+                print(
+                    f"  [{idx}] ident={ident}, mac={mac}, "
+                    f"strongs={strongs}, english={existing_eng}"
+                )
+
             while True:
+                choice = input(
+                    "Choose which mac to assign the new English to "
+                    "(or press Enter to skip): "
+                ).strip()
+
+                if choice == "":
+                    break
+
                 try:
-                    choice = int(input("Choose which mac to assign the new English to (or press Enter to skip): "))
-                    if 0 <= choice < len(candidates):
-                        ident, mac, strongs, existing_eng = candidates[choice]
+                    choice = int(choice)
+
+                    if 0 <= choice < len(valid_candidates):
+                        chosen_candidate = valid_candidates[choice]
                         break
+
                 except ValueError:
-                    print("Invalid choice. Enter a number.")
-                    continue
+                    pass
 
-            if existing_eng is None or existing_eng.strip() == "":
-                print(f"Assigning directly to ident {ident}")
-                par_cur.execute("""
-                    UPDATE parsings
-                    SET english = ?
-                    WHERE ident = ?
-                """, (english, ident))
-                chosen_ident = ident
-            else:
-                print(f"Existing English already present: '{existing_eng}', creating new parsing.")
+                print("Invalid choice. Enter a number.")
 
-        # If existing parsing already has English, make new row
-        if chosen_ident is None:
-            # Use selected or only parsing as template
-            mac = mac
-            strongs = strongs
+        # User skipped selection.
+        if chosen_candidate is None:
+            continue
+
+        ident, mac, strongs, existing_eng = chosen_candidate
+
+        # ------------------------------------------------------------
+        # If the selected parsing already has English, create a new
+        # parsing entry based on it.
+        # ------------------------------------------------------------
+
+        if existing_eng is None or existing_eng.strip() == "":
+            chosen_ident = ident
+
+            print(f"Assigning English directly to ident {ident}")
+
+            par_cur.execute("""
+                UPDATE parsings
+                SET english = ?
+                WHERE ident = ?
+            """, (english, ident))
+
+        else:
+            print(
+                f"Existing English already present: '{existing_eng}', "
+                f"creating new parsing."
+            )
+
             par_cur.execute("""
                 INSERT INTO parsings (greek, mac, strongs, english)
                 VALUES (?, ?, ?, ?)
             """, (greek, mac, strongs, english))
-            new_ident = par_cur.lastrowid
-            chosen_ident = new_ident
-            print(f"Created new parsing entry with ident={new_ident}")
 
-        # Now update entries with this (greek, english) to use chosen_ident
+            chosen_ident = par_cur.lastrowid
+
+            print(f"Created new parsing entry with ident={chosen_ident}")
+
+        # ------------------------------------------------------------
+        # Now update the corresponding entries in lxx.db.
+        # ------------------------------------------------------------
+
         ent_cur.execute("""
             UPDATE entries
             SET ident = ?
-            WHERE greek = ? AND english = ? AND ident IS NULL
+            WHERE greek = ?
+              AND english = ?
+              AND (ident IS NULL OR ident = '')
         """, (chosen_ident, greek, english))
 
         ent_conn.commit()
@@ -154,7 +233,26 @@ def assign_missing_english(entries_db_path, parsings_db_path):
 
     ent_conn.close()
     par_conn.close()
-    print("Finished assigning missing English values.")
+
+    # ------------------------------------------------------------
+    # Report all words that failed grammatical validation.
+    # ------------------------------------------------------------
+
+    print("\n" + "=" * 70)
+    print("WORDS FAILED GRAMMATICAL VALIDATION")
+    print("=" * 70)
+
+    if failed_words:
+        for uid, greek, english in failed_words:
+            print(f"{uid} | {greek} | {english}")
+
+        print(f"\nTotal failed words: {len(failed_words)}")
+    else:
+        print("No words failed grammatical validation.")
+
+    print("\nFinished assigning missing English values.")
+
+    return failed_words
 
 def renumber_conflicting_idents(parsings_db_path, entries_db_path, word_map_db_path):
     wm_conn = sqlite3.connect(word_map_db_path)
