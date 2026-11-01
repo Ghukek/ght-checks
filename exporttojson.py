@@ -27,13 +27,7 @@ def extract_structure(uid_float):
     decimal = round(uid_float % 1 * 100) - 1
     return book_num, chapter, verse, decimal
 
-def convert_to_json(db_path="concordance.db", out_file="Website/base.json"):
-    import sqlite3
-    import json
-
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
+def convert_to_json(out_file="Website/base.json"):
     cursor.execute("SELECT english, greek, uid, raw, guid, ident FROM entries ORDER BY uid")
     rows = cursor.fetchall()
 
@@ -95,26 +89,18 @@ def convert_to_json(db_path="concordance.db", out_file="Website/base.json"):
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
 
     print(f"Export complete: {out_file}")
-    conn.close()
 
 #    with open('Website/base.json', 'rb') as f_in:
 #        with gzip.open('Website/base.json.gz', 'wb') as f_out:
 #            shutil.copyfileobj(f_in, f_out)
 
 
-def export_missing_lxx(db_lxx="lxx.db", base_file="Website/base.json", out_file="Website/basex.json"):
-    import sqlite3
-    import json
-    import os
-
+def export_missing_lxx(base_file="Website/base.json", out_file="Website/basex.json"):
     # Load existing base.json
     if not os.path.exists(base_file):
         raise FileNotFoundError(f"{base_file} not found")
     with open(base_file, "r", encoding="utf-8") as f:
         data = json.load(f)
-
-    conn_l = sqlite3.connect(db_lxx)
-    cur_l = conn_l.cursor()
 
     cur_l.execute("SELECT english, greek, uid, raw, guid, ident FROM entries WHERE uid IS NOT NULL ORDER BY uid")
     lxx_rows = cur_l.fetchall()
@@ -186,12 +172,7 @@ def export_missing_lxx(db_lxx="lxx.db", base_file="Website/base.json", out_file=
 
     print(f"Export complete: {out_file}")
 
-    conn_l.close()
-
-
-import sqlite3, json
-
-def expand_root(cursor, root, seen=None):
+def expand_root(root, seen=None):
     if seen is None:
         seen = set()
     if root in seen:
@@ -205,14 +186,11 @@ def expand_root(cursor, root, seen=None):
     if result and result[0]:
         subs = [s.strip() for s in result[0].split(',')]
         for sub in subs:
-            expanded.extend(expand_root(cursor, sub, seen))
+            expanded.extend(expand_root(sub, seen))
     
     return expanded
 
 def exportlookups():
-    conn = sqlite3.connect('concordance.db')
-    cursor = conn.cursor()
-
     cursor.execute("SELECT ident, english, greek, pcode, strongs, roots, count FROM word_map ORDER BY ident")
     rows = cursor.fetchall()
 
@@ -223,7 +201,7 @@ def exportlookups():
     for ident, english, greek, pcode, strongs, roots, count in rows:
         if roots:
             # Expand roots recursively
-            all_roots = expand_root(cursor, roots)
+            all_roots = expand_root(roots)
             # Join them into a comma-separated string
             roots = ",".join(all_roots)
 
@@ -254,22 +232,16 @@ def exportlookups():
     with open('Website/lookups.json', 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
 
-    conn.close()
-
-import sqlite3
-import json
-
 def exportlookupsex():
     # Connect to concordance.db for word_map
-    conn_conc = sqlite3.connect('concordance.db')
-    cursor_conc = conn_conc.cursor()
+    cursor_conc = cursor
 
     # Connect to lxx-wh.db for parsings
     conn_lxx = sqlite3.connect('lxx-wh.db')
     cursor_lxx = conn_lxx.cursor()
 
     # Fetch from word_map
-    cursor_conc.execute("SELECT ident, english, greek, pcode, strongs, roots, count FROM word_map ORDER BY ident")
+    cursor_conc.execute("SELECT ident, english, greek, pcode, strongs, roots, ot_count FROM word_map ORDER BY ident")
     word_map_rows = cursor_conc.fetchall()
 
     # Fetch from parsings
@@ -286,8 +258,7 @@ def exportlookupsex():
         ident, english, greek, pcode, strongs, roots, count = row
 
         if roots:
-            # Use cursor from appropriate DB
-            all_roots = expand_root(cursor, roots)
+            all_roots = expand_root(roots)
             roots = ",".join(all_roots)
 
         if roots and roots == "none":
@@ -337,9 +308,6 @@ def exportlookupsex():
     with open('Website/lookupsex.json', 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
 
-    conn_conc.close()
-    conn_lxx.close()
-
 def copy_json_to_dev():
     src = "Website"
     dst = "WebsiteDev"
@@ -358,9 +326,17 @@ def copy_json_to_dev():
 
 # Run the script
 if __name__ == "__main__":
+    conn = sqlite3.connect("concordance.db")
+    cursor = conn.cursor()
+
+    conn_l = sqlite3.connect("lxx.db")
+    cur_l = conn_l.cursor()
+
     convert_to_json()
     exportlookups()
     export_missing_lxx()
     exportlookupsex()
     copy_json_to_dev()
 
+    conn.close()
+    conn_l.close()
